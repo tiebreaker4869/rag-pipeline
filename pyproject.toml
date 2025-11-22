@@ -7,6 +7,8 @@ requires-python = ">=3.12"
 dependencies = [
     "accelerate>=1.11.0",
     "colpali-engine",
+    "langchain>=1.0.8",
+    "langchain-text-splitters>=1.0.0",
     "openai>=2.8.1",
     "pymupdf>=1.26.6",
     "pyyaml>=6.0.3",

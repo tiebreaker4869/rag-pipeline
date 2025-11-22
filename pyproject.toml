@@ -4,4 +4,16 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "accelerate>=1.11.0",
+    "colpali-engine",
+    "fitz>=0.0.1.dev2",
+    "openai>=2.8.1",
+    "pyyaml>=6.0.3",
+    "sentence-transformers>=5.1.2",
+    "torch==2.8.0",
+    "transformers>=4.57.1",
+]
+
+[tool.uv.sources]
+colpali-engine = { git = "https://github.com/illuin-tech/colpali" }

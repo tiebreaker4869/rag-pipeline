@@ -23,5 +23,12 @@ dependencies = [
     "transformers>=4.57.1",
 ]
 
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+exclude = ["data*", ".venv*", "*.egg-info"]
+
 [tool.uv.sources]
 colpali-engine = { git = "https://github.com/illuin-tech/colpali" }

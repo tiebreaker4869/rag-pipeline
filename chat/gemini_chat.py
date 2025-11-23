@@ -11,7 +11,7 @@ class GeminiChat(BaseLLM):
         self,
         model: str = "gemini-2.0-flash-exp",
         api_key: Optional[str] = None,
-        **kwargs
+        **kwargs,
     ):
         """
         Initialize Gemini Chat
@@ -38,7 +38,7 @@ class GeminiChat(BaseLLM):
         messages: List[Message],
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
-        **kwargs
+        **kwargs,
     ) -> ChatResponse:
         """
         Generate response
@@ -67,8 +67,7 @@ class GeminiChat(BaseLLM):
 
         # Call Gemini API
         response = self.client.generate_content(
-            gemini_messages,
-            generation_config=generation_config
+            gemini_messages, generation_config=generation_config
         )
 
         # Extract usage information
@@ -85,8 +84,12 @@ class GeminiChat(BaseLLM):
             model=self.model,
             usage=usage,
             metadata={
-                "finish_reason": response.candidates[0].finish_reason.name if response.candidates else None
-            }
+                "finish_reason": (
+                    response.candidates[0].finish_reason.name
+                    if response.candidates
+                    else None
+                )
+            },
         )
 
     def _convert_messages(self, messages: List[Message]) -> List[dict]:
@@ -109,14 +112,10 @@ class GeminiChat(BaseLLM):
                 if system_prompt:
                     content = f"{system_prompt}\n\n{content}"
                     system_prompt = None
-                gemini_messages.append({
-                    "role": "user",
-                    "parts": [{"text": content}]
-                })
+                gemini_messages.append({"role": "user", "parts": [{"text": content}]})
             elif msg.role == "assistant":
-                gemini_messages.append({
-                    "role": "model",
-                    "parts": [{"text": msg.content}]
-                })
+                gemini_messages.append(
+                    {"role": "model", "parts": [{"text": msg.content}]}
+                )
 
         return gemini_messages

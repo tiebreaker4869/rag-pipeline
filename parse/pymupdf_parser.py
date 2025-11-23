@@ -23,7 +23,9 @@ class PyMuPDFParser(PDFParser):
             doc = fitz.open(pdf_path)
 
             if page_num < 1 or page_num > doc.page_count:
-                raise ValueError(f"Page {page_num} out of range. Document has {doc.page_count} pages.")
+                raise ValueError(
+                    f"Page {page_num} out of range. Document has {doc.page_count} pages."
+                )
 
             # Load the specific page (PyMuPDF uses 0-indexed)
             page = doc.load_page(page_num - 1)
@@ -41,10 +43,7 @@ class PyMuPDFParser(PDFParser):
             doc.close()
 
             return PageContent(
-                doc_id=doc_id,
-                page_num=page_num,
-                text=text,
-                metadata=metadata
+                doc_id=doc_id, page_num=page_num, text=text, metadata=metadata
             )
 
         except Exception as e:

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 @dataclass
 class Message:
     """聊天消息"""
+
     role: str  # "user", "assistant", "system"
     content: str
 
@@ -16,6 +17,7 @@ class Message:
 @dataclass
 class ChatResponse:
     """LLM 响应"""
+
     content: str
     model: str
     usage: Optional[Dict[str, int]] = None  # token usage info
@@ -35,7 +37,7 @@ class BaseLLM(ABC):
         messages: List[Message],
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
-        **kwargs
+        **kwargs,
     ) -> ChatResponse:
         """
         生成回复
@@ -51,7 +53,9 @@ class BaseLLM(ABC):
         """
         pass
 
-    def chat(self, user_message: str, system_prompt: Optional[str] = None, **kwargs) -> str:
+    def chat(
+        self, user_message: str, system_prompt: Optional[str] = None, **kwargs
+    ) -> str:
         """
         简化的单轮对话接口
 

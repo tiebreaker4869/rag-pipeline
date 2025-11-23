@@ -6,6 +6,7 @@ from dataclasses import dataclass
 @dataclass
 class PageContent:
     """Represents the content of a single page"""
+
     doc_id: str
     page_num: int
     text: str

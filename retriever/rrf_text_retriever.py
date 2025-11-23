@@ -1,9 +1,10 @@
 from langchain_community.retrievers import BM25Retriever
 from langchain_community.vectorstores import FAISS
-from langchain_openai import OpenAIEmbeddings
+from langchain_community.embeddings import HuggingFaceEmbeddings
 from typing import List
 from langchain_core.documents import Document
 from collections import defaultdict
+import torch
 
 
 def rrf_fuse(doc_lists, weights=None, c=60) -> List[Document]:
@@ -26,7 +27,14 @@ class HybridRetriever:
     def __init__(self, keyword_k: int, dense_k: int, documents: List[Document]):
         self.bm25 = BM25Retriever.from_documents(documents)
         self.bm25.k = keyword_k
-        vs = FAISS.from_documents(documents, OpenAIEmbeddings())
+
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        embeddings = HuggingFaceEmbeddings(
+            model_name="BAAI/bge-large-en-v1.5",
+            model_kwargs={'device': device},
+            encode_kwargs={'normalize_embeddings': True}
+        )
+        vs = FAISS.from_documents(documents, embeddings)
         self.dense = vs.as_retriever(search_kwargs={"k": dense_k})
 
     def retrieve(

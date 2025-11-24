@@ -7,6 +7,7 @@ from langchain_core.documents import Document
 from collections import defaultdict
 import torch
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 def rrf_fuse(doc_lists, weights=None, c=60) -> List[Document]:
@@ -26,6 +27,9 @@ def rrf_fuse(doc_lists, weights=None, c=60) -> List[Document]:
 
 
 class HybridRetriever:
+    # Class-level cache for embedding models
+    _embedding_cache = {}
+
     def __init__(
         self,
         keyword_k: int,
@@ -46,16 +50,46 @@ class HybridRetriever:
                                "BAAI/bge-m3", "sentence-transformers/all-MiniLM-L6-v2"
                 - Or any HuggingFace model name
         """
-        self.bm25 = BM25Retriever.from_documents(documents)
-        self.bm25.k = keyword_k
-
         # Create embeddings based on model name
         if embedding_model is None:
             embedding_model = "BAAI/bge-large-en-v1.5"
 
-        embeddings = self._create_embeddings(embedding_model)
+        # Parallelize BM25 and FAISS indexing
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            # Submit both indexing tasks
+            bm25_future = executor.submit(self._build_bm25_index, documents, keyword_k)
+            dense_future = executor.submit(
+                self._build_dense_index, documents, embedding_model, dense_k
+            )
+
+            # Wait for both to complete
+            self.bm25 = bm25_future.result()
+            self.dense = dense_future.result()
+
+    def _build_bm25_index(self, documents: List[Document], keyword_k: int):
+        """Build BM25 index"""
+        bm25 = BM25Retriever.from_documents(documents)
+        bm25.k = keyword_k
+        return bm25
+
+    def _build_dense_index(
+        self, documents: List[Document], embedding_model: str, dense_k: int
+    ):
+        """Build FAISS dense index"""
+        embeddings = self._get_or_create_embeddings(embedding_model)
         vs = FAISS.from_documents(documents, embeddings)
-        self.dense = vs.as_retriever(search_kwargs={"k": dense_k})
+        return vs.as_retriever(search_kwargs={"k": dense_k})
+
+    def _get_or_create_embeddings(self, model_name: str):
+        """Get embeddings from cache or create new one"""
+        if model_name in self._embedding_cache:
+            print(f"[INFO] Reusing cached embedding model: {model_name}")
+            return self._embedding_cache[model_name]
+
+        print(f"[INFO] Loading embedding model: {model_name}")
+        embeddings = self._create_embeddings(model_name)
+        self._embedding_cache[model_name] = embeddings
+        return embeddings
 
     def _create_embeddings(self, model_name: str):
         """Create embeddings from model name"""
@@ -85,7 +119,13 @@ class HybridRetriever:
     def retrieve(
         self, question: str, top_k: int, weights: List[float] = None
     ) -> List[Document]:
-        bm25_docs = self.bm25.invoke(question)
-        dense_docs = self.dense.invoke(question)
+        # Parallelize BM25 and dense retrieval
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            bm25_future = executor.submit(self.bm25.invoke, question)
+            dense_future = executor.submit(self.dense.invoke, question)
+
+            bm25_docs = bm25_future.result()
+            dense_docs = dense_future.result()
+
         results = rrf_fuse([bm25_docs, dense_docs], weights)
         return results[:top_k]

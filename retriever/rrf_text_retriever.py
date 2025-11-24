@@ -7,7 +7,8 @@ from langchain_core.documents import Document
 from collections import defaultdict
 import torch
 import os
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
+from utils.profile import capture_latency
 
 
 def rrf_fuse(doc_lists, weights=None, c=60) -> List[Document]:
@@ -66,12 +67,14 @@ class HybridRetriever:
             self.bm25 = bm25_future.result()
             self.dense = dense_future.result()
 
+    @capture_latency("BuildBM25Index")
     def _build_bm25_index(self, documents: List[Document], keyword_k: int):
         """Build BM25 index"""
         bm25 = BM25Retriever.from_documents(documents)
         bm25.k = keyword_k
         return bm25
 
+    @capture_latency("BuildDenseIndex")
     def _build_dense_index(
         self, documents: List[Document], embedding_model: str, dense_k: int
     ):

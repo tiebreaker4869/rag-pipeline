@@ -10,7 +10,7 @@ import os
 from prompt.baseline_prompt import generation_prompt
 import argparse
 from utils.profile import latency_context, export_latency
-from rerank import BaseReranker, LLMReranker
+from rerank import BaseReranker, BGEReranker
 
 
 class SimpleRAGPipeline:
@@ -40,7 +40,7 @@ class SimpleRAGPipeline:
         self.final_k = final_k
         self.hybrid_weights = hybrid_weights
         self.embedding_model = embedding_model
-        self.reranker: BaseReranker = LLMReranker(self.llm, relevance_threshold=0.3)
+        self.reranker: BaseReranker = BGEReranker(model_name="BAAI/bge-reranker-base")
 
     def query(self, question: str):
         # stage 1: retrieve by vision embeddings

@@ -24,6 +24,7 @@ class SimpleRAGPipeline:
         final_k: int,
         hybrid_weights: List[float],
         model: str,
+        embedding_model: str,
     ):
         self.vision_retriever = Retriever(doc_dir, vision_embedding_dir)
         self.doc_dir = doc_dir
@@ -36,6 +37,7 @@ class SimpleRAGPipeline:
         self.dense_k = dense_k
         self.final_k = final_k
         self.hybrid_weights = hybrid_weights
+        self.embedding_model = embedding_model
 
     def query(self, question: str):
         pages = self.vision_retriever.retrieve(
@@ -56,7 +58,7 @@ class SimpleRAGPipeline:
                 document = Document(page_content=chunk, metadata=metadata)
                 page_documents.append(document)
         self.text_retriever = HybridRetriever(
-            self.keyword_k, self.dense_k, page_documents
+            self.keyword_k, self.dense_k, page_documents, self.embedding_model
         )
         retrieved_documents = self.text_retriever.retrieve(
             question, self.final_k, self.hybrid_weights
@@ -86,6 +88,12 @@ def main():
     parser.add_argument("--final_k", type=int, default=5)
     parser.add_argument("--keyword_weight", type=float, default=0.5)
     parser.add_argument("--generation_model", type=str, default="gemini-1.5-flash")
+    parser.add_argument(
+        "--embedding_model",
+        type=str,
+        default="BAAI/bge-large-en-v1.5",
+        help="Embedding model: 'text-embedding-3-small', 'text-embedding-3-large', 'BAAI/bge-large-en-v1.5', etc.",
+    )
     args = parser.parse_args()
 
     rag = SimpleRAGPipeline(
@@ -99,6 +107,7 @@ def main():
         args.final_k,
         [args.keyword_weight, 1 - args.keyword_weight],
         args.generation_model,
+        args.embedding_model,
     )
 
     while True:

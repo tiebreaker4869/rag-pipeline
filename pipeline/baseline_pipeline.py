@@ -65,15 +65,17 @@ class SimpleRAGPipeline:
                     page_documents.append(document)
         # stage 3: Text Retrieval
         with latency_context("TextRetrieval"):
-            self.text_retriever = HybridRetriever(
-                self.keyword_k, self.dense_k, page_documents, self.embedding_model
-            )
-            retrieved_documents = self.text_retriever.retrieve(
-                question, self.final_k, self.hybrid_weights
-            )
-            context = self._create_stuff_context(retrieved_documents)
+            with latency_context("TextRetrieval::Indexing"):
+                self.text_retriever = HybridRetriever(
+                    self.keyword_k, self.dense_k, page_documents, self.embedding_model
+                )
+            with latency_context("TextRetrieval::Retrieval"):
+                retrieved_documents = self.text_retriever.retrieve(
+                    question, self.final_k, self.hybrid_weights
+                )
         # stage 4: generation
         with latency_context("FinalGeneration"):
+            context = self._create_stuff_context(retrieved_documents)
             prompt = generation_prompt.format(context=context, question=question)
             answer = self.llm.chat(prompt)
         return answer

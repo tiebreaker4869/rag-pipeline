@@ -9,7 +9,7 @@ from langchain_core.documents import Document
 import os
 from prompt.baseline_prompt import generation_prompt
 import argparse
-from utils.profile import latency_context
+from utils.profile import latency_context, export_latency
 
 
 class SimpleRAGPipeline:
@@ -98,6 +98,7 @@ def main():
     parser.add_argument("--final_k", type=int, default=5)
     parser.add_argument("--keyword_weight", type=float, default=0.5)
     parser.add_argument("--generation_model", type=str, default="gemini-1.5-flash")
+    parser.add_argument("--metrics_output_dir", type=str, default="output")
     parser.add_argument(
         "--embedding_model",
         type=str,
@@ -127,6 +128,9 @@ def main():
         else:
             answer = rag.query(query)
             print(answer)
+    os.makedirs(args.metrics_output_dir, exist_ok=True)
+    output_path = os.path.join(args.metrics_output_dir, "metrics.csv")
+    export_latency(output_path, format="csv")
 
 
 if __name__ == "__main__":

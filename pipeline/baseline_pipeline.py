@@ -9,6 +9,7 @@ from langchain_core.documents import Document
 import os
 from prompt.baseline_prompt import generation_prompt
 import argparse
+from utils.profile import latency_context
 
 
 class SimpleRAGPipeline:
@@ -40,32 +41,41 @@ class SimpleRAGPipeline:
         self.embedding_model = embedding_model
 
     def query(self, question: str):
-        pages = self.vision_retriever.retrieve(
-            question, self.vision_topk
-        )  # every page result is a dict with keys: doc_id, page_num, score
+        # stage 1: retrieve by vision embeddings
+        pages = []
+        with latency_context("VisionRetrieval"):
+            pages = self.vision_retriever.retrieve(
+                question, self.vision_topk
+            )  # every page result is a dict with keys: doc_id, page_num, score
+        # stage 2: parse image and do chunking
         page_documents: List[Document] = []
-        for page in pages:
-            doc_id, page_num = page["doc_id"], page["page_num"]
-            doc_path = os.path.join(self.doc_dir, doc_id)
-            page_content = self.page_parser.parse_page(doc_path, page_num)
-            text = page_content.text
-            chunks = self.chunker.split_text(text)
-            for chunk in chunks:
-                metadata = {}
-                metadata.update(page_content.metadata)
-                metadata["page_num"] = page_num
-                metadata["doc_id"] = doc_id
-                document = Document(page_content=chunk, metadata=metadata)
-                page_documents.append(document)
-        self.text_retriever = HybridRetriever(
-            self.keyword_k, self.dense_k, page_documents, self.embedding_model
-        )
-        retrieved_documents = self.text_retriever.retrieve(
-            question, self.final_k, self.hybrid_weights
-        )
-        context = self._create_stuff_context(retrieved_documents)
-        prompt = generation_prompt.format(context=context, question=question)
-        answer = self.llm.chat(prompt)
+        with latency_context("ParseAndChunk"):
+            for page in pages:
+                doc_id, page_num = page["doc_id"], page["page_num"]
+                doc_path = os.path.join(self.doc_dir, doc_id)
+                page_content = self.page_parser.parse_page(doc_path, page_num)
+                text = page_content.text
+                chunks = self.chunker.split_text(text)
+                for chunk in chunks:
+                    metadata = {}
+                    metadata.update(page_content.metadata)
+                    metadata["page_num"] = page_num
+                    metadata["doc_id"] = doc_id
+                    document = Document(page_content=chunk, metadata=metadata)
+                    page_documents.append(document)
+        # stage 3: Text Retrieval
+        with latency_context("TextRetrieval"):
+            self.text_retriever = HybridRetriever(
+                self.keyword_k, self.dense_k, page_documents, self.embedding_model
+            )
+            retrieved_documents = self.text_retriever.retrieve(
+                question, self.final_k, self.hybrid_weights
+            )
+            context = self._create_stuff_context(retrieved_documents)
+        # stage 4: generation
+        with latency_context("FinalGeneration"):
+            prompt = generation_prompt.format(context=context, question=question)
+            answer = self.llm.chat(prompt)
         return answer
 
     def _create_stuff_context(self, documents: List[Document]) -> str:

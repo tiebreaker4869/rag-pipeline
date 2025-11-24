@@ -991,6 +991,20 @@ wheels = [
 ]
 
 [[package]]
+name = "langchain-huggingface"
+version = "1.0.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "huggingface-hub" },
+    { name = "langchain-core" },
+    { name = "tokenizers" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ae/85/8ae6fa9e70a4d2647151df59abf8bc658c159936fcb1e508b86c4f6f23b6/langchain_huggingface-1.0.1.tar.gz", hash = "sha256:9e54b81303b60656f88f45e9a876fb4e3ea0bfb5d40715f802c26811fd8cd72b", size = 248461, upload-time = "2025-11-03T19:53:43.072Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/bd/9d/90dc488e426e4dfef63a77b04a06ef816297a1b036075e5fd34a98436875/langchain_huggingface-1.0.1-py3-none-any.whl", hash = "sha256:032325539dd6b2970910356ecfc363283e8b4e51fb1890de40666a52e95e7d53", size = 27920, upload-time = "2025-11-03T19:53:42.173Z" },
+]
+
+[[package]]
 name = "langchain-openai"
 version = "1.0.3"
 source = { registry = "https://pypi.org/simple" }
@@ -2063,6 +2077,7 @@ dependencies = [
     { name = "google-generativeai" },
     { name = "langchain" },
     { name = "langchain-community" },
+    { name = "langchain-huggingface" },
     { name = "langchain-openai" },
     { name = "langchain-text-splitters" },
     { name = "openai" },
@@ -2083,6 +2098,7 @@ requires-dist = [
     { name = "google-generativeai", specifier = ">=0.8.5" },
     { name = "langchain", specifier = ">=1.0.8" },
     { name = "langchain-community", specifier = ">=0.4.1" },
+    { name = "langchain-huggingface", specifier = ">=1.0.1" },
     { name = "langchain-openai", specifier = ">=1.0.3" },
     { name = "langchain-text-splitters", specifier = ">=1.0.0" },
     { name = "openai", specifier = ">=2.8.1" },

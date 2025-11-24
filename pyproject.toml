@@ -12,6 +12,7 @@ dependencies = [
     "google-generativeai>=0.8.5",
     "langchain>=1.0.8",
     "langchain-community>=0.4.1",
+    "langchain-huggingface>=1.0.1",
     "langchain-openai>=1.0.3",
     "langchain-text-splitters>=1.0.0",
     "openai>=2.8.1",

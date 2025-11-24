@@ -10,6 +10,7 @@ import os
 from prompt.baseline_prompt import generation_prompt
 import argparse
 from utils.profile import latency_context, export_latency
+from rerank import BaseReranker, LLMReranker
 
 
 class SimpleRAGPipeline:
@@ -39,6 +40,7 @@ class SimpleRAGPipeline:
         self.final_k = final_k
         self.hybrid_weights = hybrid_weights
         self.embedding_model = embedding_model
+        self.reranker: BaseReranker = LLMReranker(self.llm, relevance_threshold=0.3)
 
     def query(self, question: str):
         # stage 1: retrieve by vision embeddings
@@ -73,9 +75,12 @@ class SimpleRAGPipeline:
                 retrieved_documents = self.text_retriever.retrieve(
                     question, self.final_k, self.hybrid_weights
                 )
-        # stage 4: generation
+        # stage 4: reranking
+        with latency_context("Rerank"):
+            reranked_documents = self.reranker.rerank(question, retrieved_documents)
+        # stage 5: generation
         with latency_context("FinalGeneration"):
-            context = self._create_stuff_context(retrieved_documents)
+            context = self._create_stuff_context(reranked_documents)
             prompt = generation_prompt.format(context=context, question=question)
             answer = self.llm.chat(prompt)
         return answer

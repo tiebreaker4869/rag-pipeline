@@ -52,6 +52,8 @@ class TextRAGPipeline:
         top_k: int = 5,
         llm_model: str = "gemini-1.5-flash",
         embedding_model: str = "BAAI/bge-large-en-v1.5",
+        doc_filter: Optional[List[str]] = None,
+        single_doc_mode: bool = False,
     ):
         self.doc_dir = doc_dir
         self.page_parser = PyMuPDFParser()
@@ -59,16 +61,19 @@ class TextRAGPipeline:
         self.llm: BaseLLM = GeminiChat(model=llm_model)
         self.top_k = top_k
         self.embedding_model = embedding_model
+        self.doc_filter = set(doc_filter) if doc_filter else None
+        self.single_doc_mode = single_doc_mode
 
         with latency_context("BuildIndex"):
-            self.retriever = self._build_vector_index()
+            self.retriever, self.vectorstore = self._build_vector_index()
 
     def _build_vector_index(self):
         with latency_context("Chunking"):
             documents = self._load_documents()
         embeddings = _create_embeddings(self.embedding_model)
         vs = FAISS.from_documents(documents, embeddings)
-        return vs.as_retriever(search_kwargs={"k": self.top_k})
+        retriever = vs.as_retriever(search_kwargs={"k": self.top_k})
+        return retriever, vs
 
     def _load_documents(self) -> List[Document]:
         pdf_paths = glob.glob(os.path.join(self.doc_dir, "**/*.pdf"), recursive=True)
@@ -78,6 +83,8 @@ class TextRAGPipeline:
         docs: List[Document] = []
         for pdf_path in pdf_paths:
             doc_id = os.path.basename(pdf_path)
+            if self.doc_filter and doc_id not in self.doc_filter:
+                continue
             pdf = fitz.open(pdf_path)
             total_pages = pdf.page_count
             pdf.close()
@@ -89,11 +96,21 @@ class TextRAGPipeline:
                     metadata.update({"doc_id": doc_id, "page_num": page_num})
                     docs.append(Document(page_content=chunk, metadata=metadata))
 
+            if self.single_doc_mode:
+                # In single_doc_mode we only expect/process one document; break after first.
+                break
+
         return docs
 
-    def query(self, question: str) -> str:
+    def query(self, question: str, doc_id: Optional[str] = None) -> str:
         with latency_context("TextRetrieval"):
-            retrieved_documents = self.retriever.invoke(question)
+            # If a doc_id is provided, filter results to that document's metadata.
+            if doc_id:
+                retrieved_documents = self.vectorstore.similarity_search(
+                    question, k=self.top_k, filter={"doc_id": doc_id}
+                )
+            else:
+                retrieved_documents = self.retriever.invoke(question)
 
         with latency_context("FinalGeneration"):
             context = self._create_context(retrieved_documents)

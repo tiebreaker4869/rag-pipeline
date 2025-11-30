@@ -17,7 +17,7 @@ class TesseractPdfParser(PDFParser):
         lang: str = "eng",
         tesseract_cmd: Optional[str] = None,
         dpi: int = 300,
-        preprocess: bool = False,
+        preprocess: bool = True,
         config: Optional[str] = None,
     ):
         """

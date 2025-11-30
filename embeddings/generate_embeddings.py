@@ -77,15 +77,9 @@ class PDFPageDataset(Dataset):
         }
 
 
-# Custom collate function to handle PIL images
-def collate_fn(batch):
-    print(f"[DEBUG] Preprocessing images for batch: {batch['pdf_path']}")
-    batch["image"] = processor.process_images(batch["image"])
-    return batch
-
-
-def process_batch(model, batch):
-    """Process a batch of PDF pages and save embeddings"""
+# Process one document (all its pages) in small GPU batches
+def process_batch(model, batch, pages_per_batch: int = 4):
+    """Process a document's pages in small batches and save embeddings."""
     embedding_path = (
         batch["pdf_path"].replace("documents", "embeddings").replace(".pdf", ".pt")
     )
@@ -93,10 +87,36 @@ def process_batch(model, batch):
         print(f"Embedding already exists for {batch['pdf_path']}, skipping.")
         return
 
-    print(f"[INFO] Processing batch for: {batch['pdf_path']}")
+    print(f"[INFO] Processing document: {batch['pdf_path']}")
+
+    images = batch["image"]  # List[PIL.Image]
+    if not images:
+        print(f"[WARN] No pages found for {batch['pdf_path']}, skipping.")
+        return
+
+    page_embeddings = []
+
     with torch.no_grad():
-        batch_images = batch["image"].to(model.device)
-        image_embeddings = model(**batch_images)
+        for start in range(0, len(images), pages_per_batch):
+            end = min(start + pages_per_batch, len(images))
+            chunk_imgs = images[start:end]
+
+            # CPU-side preprocessing, then move only tensors to GPU
+            inputs = processor.process_images(chunk_imgs)
+            inputs = inputs.to(model.device)
+
+            chunk_emb = model(**inputs)
+
+            # Move embeddings back to CPU immediately to free GPU memory
+            page_embeddings.append(chunk_emb.cpu())
+
+            del inputs, chunk_emb
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+    # Concatenate per-page embeddings into a single tensor,
+    # preserving the "one vector per page" semantics.
+    image_embeddings = torch.cat(page_embeddings, dim=0)
 
     os.makedirs(os.path.dirname(embedding_path), exist_ok=True)
     torch.save(image_embeddings, embedding_path)
@@ -150,14 +170,13 @@ def main():
     # print(f"Processing {len(pdf_files)} PDF files")
 
     print("Loading Dataloader")
-    # Create dataset and dataloader
+    # Create dataset and dataloader (one sample = one document)
     dataset = PDFPageDataset(pdf_files, image_dpi=args.image_dpi)
     dataloader = DataLoader(
         dataset,
         batch_size=None,
         num_workers=args.num_workers,
         pin_memory=True,
-        collate_fn=collate_fn,  # Use custom collate function
     )
 
     # Process batches

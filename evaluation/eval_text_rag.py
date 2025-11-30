@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from pipeline.vector_pipeline import TextRAGPipeline
+from utils.profile import export_latency
 
 
 def load_samples(path: str, limit: int | None) -> List[Dict[str, Any]]:
@@ -92,6 +93,7 @@ def evaluate(
     output_file.parent.mkdir(parents=True, exist_ok=True)
     with open(output_file, "w", encoding="utf-8") as f:
         json.dump(results, f, ensure_ascii=False, indent=2)
+    export_latency(output_path.replace("json", "csv"), format="csv")
 
     print(f"Saved results to {output_file} (JSON)")
 

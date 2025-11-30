@@ -94,16 +94,21 @@ def process_batch(model, batch, pages_per_batch: int = 8):
         print(f"[WARN] No pages found for {batch['pdf_path']}, skipping.")
         return
 
+    # Pre-process all images together to get consistent padding across all batches
+    # This ensures all chunks have the same num_patches dimension
+    all_inputs = processor.process_images(images)
+
     page_embeddings = []
 
     with torch.no_grad():
         for start in range(0, len(images), pages_per_batch):
             end = min(start + pages_per_batch, len(images))
-            chunk_imgs = images[start:end]
 
-            # CPU-side preprocessing for this chunk, then move only tensors to GPU
-            chunk_inputs = processor.process_images(chunk_imgs)
-            chunk_inputs = chunk_inputs.to(model.device)
+            # Extract the chunk from the pre-processed inputs
+            chunk_inputs = {
+                k: v[start:end].to(model.device) if isinstance(v, torch.Tensor) else v[start:end]
+                for k, v in all_inputs.items()
+            }
 
             chunk_emb = model(**chunk_inputs)
 
@@ -114,9 +119,8 @@ def process_batch(model, batch, pages_per_batch: int = 8):
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
-    # Concatenate embeddings across all chunks.
-    # Each chunk processes different pages, so we concatenate along the batch dimension (dim=0)
-    # The resulting shape will be (total_pages, num_patches, embedding_dim)
+    # Concatenate embeddings across all chunks along the batch dimension
+    # Since all images were pre-processed together, they have consistent padding
     image_embeddings = torch.cat(page_embeddings, dim=0)
 
     os.makedirs(os.path.dirname(embedding_path), exist_ok=True)

@@ -94,17 +94,15 @@ def process_batch(model, batch, pages_per_batch: int = 8):
         print(f"[WARN] No pages found for {batch['pdf_path']}, skipping.")
         return
 
-    # Preprocess all pages on CPU once, so that
-    # sequence dimensions are consistent across the document.
-    doc_inputs = processor.process_images(images)
-
     page_embeddings = []
 
     with torch.no_grad():
         for start in range(0, len(images), pages_per_batch):
             end = min(start + pages_per_batch, len(images))
-            # Slice the preprocessed batch to keep sequence dims aligned
-            chunk_inputs = doc_inputs[start:end]
+            chunk_imgs = images[start:end]
+
+            # CPU-side preprocessing for this chunk, then move only tensors to GPU
+            chunk_inputs = processor.process_images(chunk_imgs)
             chunk_inputs = chunk_inputs.to(model.device)
 
             chunk_emb = model(**chunk_inputs)
@@ -116,9 +114,12 @@ def process_batch(model, batch, pages_per_batch: int = 8):
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
-    # Concatenate per-page embeddings into a single tensor,
-    # preserving the "one vector per page" semantics.
-    image_embeddings = torch.cat(page_embeddings, dim=0)
+    # Concatenate embeddings across all chunks.
+    # For ColPali, the "sequence"/multi-vector dimension is usually dim=1,
+    # so we concatenate along dim=1 when there are 3 dims, otherwise along dim=0.
+    first = page_embeddings[0]
+    cat_dim = 1 if first.dim() >= 3 else 0
+    image_embeddings = torch.cat(page_embeddings, dim=cat_dim)
 
     os.makedirs(os.path.dirname(embedding_path), exist_ok=True)
     torch.save(image_embeddings, embedding_path)

@@ -115,11 +115,9 @@ def process_batch(model, batch, pages_per_batch: int = 8):
                 torch.cuda.empty_cache()
 
     # Concatenate embeddings across all chunks.
-    # For ColPali, the "sequence"/multi-vector dimension is usually dim=1,
-    # so we concatenate along dim=1 when there are 3 dims, otherwise along dim=0.
-    first = page_embeddings[0]
-    cat_dim = 1 if first.dim() >= 3 else 0
-    image_embeddings = torch.cat(page_embeddings, dim=cat_dim)
+    # Each chunk processes different pages, so we concatenate along the batch dimension (dim=0)
+    # The resulting shape will be (total_pages, num_patches, embedding_dim)
+    image_embeddings = torch.cat(page_embeddings, dim=0)
 
     os.makedirs(os.path.dirname(embedding_path), exist_ok=True)
     torch.save(image_embeddings, embedding_path)

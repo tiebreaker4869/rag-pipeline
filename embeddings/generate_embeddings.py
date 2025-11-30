@@ -78,7 +78,7 @@ class PDFPageDataset(Dataset):
 
 
 # Process one document (all its pages) in small GPU batches
-def process_batch(model, batch, pages_per_batch: int = 4):
+def process_batch(model, batch, pages_per_batch: int = 8):
     """Process a document's pages in small batches and save embeddings."""
     embedding_path = (
         batch["pdf_path"].replace("documents", "embeddings").replace(".pdf", ".pt")
@@ -94,23 +94,25 @@ def process_batch(model, batch, pages_per_batch: int = 4):
         print(f"[WARN] No pages found for {batch['pdf_path']}, skipping.")
         return
 
+    # Preprocess all pages on CPU once, so that
+    # sequence dimensions are consistent across the document.
+    doc_inputs = processor.process_images(images)
+
     page_embeddings = []
 
     with torch.no_grad():
         for start in range(0, len(images), pages_per_batch):
             end = min(start + pages_per_batch, len(images))
-            chunk_imgs = images[start:end]
+            # Slice the preprocessed batch to keep sequence dims aligned
+            chunk_inputs = doc_inputs[start:end]
+            chunk_inputs = chunk_inputs.to(model.device)
 
-            # CPU-side preprocessing, then move only tensors to GPU
-            inputs = processor.process_images(chunk_imgs)
-            inputs = inputs.to(model.device)
-
-            chunk_emb = model(**inputs)
+            chunk_emb = model(**chunk_inputs)
 
             # Move embeddings back to CPU immediately to free GPU memory
             page_embeddings.append(chunk_emb.cpu())
 
-            del inputs, chunk_emb
+            del chunk_inputs, chunk_emb
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 

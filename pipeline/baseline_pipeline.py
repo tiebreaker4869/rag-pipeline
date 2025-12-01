@@ -2,7 +2,7 @@ from chunking.simple_chunker import SimpleChunker
 from retriever.copali_retriever import Retriever
 from retriever.rrf_text_retriever import HybridRetriever
 from parse.pdf_parser import PDFParser
-from parse.pymupdf_parser import PyMuPDFParser
+from parse.hybrid_parser import HybridPdfParser
 from chat import BaseLLM, GeminiChat
 from typing import List
 from langchain_core.documents import Document
@@ -30,7 +30,7 @@ class SimpleRAGPipeline:
     ):
         self.vision_retriever = Retriever(doc_dir, vision_embedding_dir)
         self.doc_dir = doc_dir
-        self.page_parser: PDFParser = PyMuPDFParser()
+        self.page_parser: PDFParser = HybridPdfParser()
         self.chunker = SimpleChunker(chunk_size, chunk_overlap)
         self.text_retriever: HybridRetriever = None
         self.llm: BaseLLM = GeminiChat(model=model)

@@ -18,8 +18,17 @@ from rerank import BaseReranker, BGEReranker
 from utils.profile import export_latency, latency_context
 
 
+# Global cache for embedding models to prevent memory leaks
+_EMBEDDING_CACHE = {}
+
+
 def _create_embeddings(model_name: str):
-    """Factory for OpenAI or HuggingFace embeddings."""
+    """Factory for OpenAI or HuggingFace embeddings with caching."""
+    # Check cache first
+    if model_name in _EMBEDDING_CACHE:
+        print(f"[INFO] Reusing cached embedding model: {model_name}")
+        return _EMBEDDING_CACHE[model_name]
+
     openai_models = [
         "text-embedding-3-small",
         "text-embedding-3-large",
@@ -30,14 +39,19 @@ def _create_embeddings(model_name: str):
             raise ValueError(
                 f"OPENAI_API_KEY environment variable is required for model {model_name}"
             )
-        return OpenAIEmbeddings(model=model_name)
+        embeddings = OpenAIEmbeddings(model=model_name)
+    else:
+        print(f"[INFO] Loading embedding model: {model_name}")
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        embeddings = HuggingFaceEmbeddings(
+            model_name=model_name,
+            model_kwargs={"device": device},
+            encode_kwargs={"normalize_embeddings": True},
+        )
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    return HuggingFaceEmbeddings(
-        model_name=model_name,
-        model_kwargs={"device": device},
-        encode_kwargs={"normalize_embeddings": True},
-    )
+    # Cache the model
+    _EMBEDDING_CACHE[model_name] = embeddings
+    return embeddings
 
 
 class TextRAGPipeline:

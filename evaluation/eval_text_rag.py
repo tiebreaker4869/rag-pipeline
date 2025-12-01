@@ -7,10 +7,13 @@ each QA sample and records predictions + simple matching metrics.
 """
 
 import argparse
+import gc
 import json
 import os
 from pathlib import Path
 from typing import Any, Dict, List
+
+import torch
 
 from pipeline.vector_pipeline import TextRAGPipeline
 from utils.profile import export_latency
@@ -94,6 +97,14 @@ def evaluate(
                     "pred_answer": pred,
                 }
             )
+
+        # Explicitly clean up pipeline to free memory
+        del pipeline
+        gc.collect()
+
+        # Clear CUDA cache if available
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     output_file = Path(output_path)
     output_file.parent.mkdir(parents=True, exist_ok=True)

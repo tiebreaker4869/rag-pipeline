@@ -38,6 +38,9 @@ def evaluate(
     generation_model: str,
     embedding_model: str,
     limit: int | None,
+    use_reranker: bool = False,
+    reranker_model: str = "BAAI/bge-reranker-base",
+    rerank_top_k: int | None = None,
 ):
     samples = load_samples(samples_path, limit)
     if not samples:
@@ -67,6 +70,9 @@ def evaluate(
             embedding_model=embedding_model,
             doc_filter=[doc_id],
             single_doc_mode=True,
+            use_reranker=use_reranker,
+            reranker_model=reranker_model,
+            rerank_top_k=rerank_top_k,
         )
 
         for sample in doc_samples:
@@ -135,6 +141,23 @@ def main():
     parser.add_argument(
         "--limit", type=int, default=None, help="Limit number of samples for a quick run."
     )
+    parser.add_argument(
+        "--use_reranker",
+        action="store_true",
+        help="Enable reranking with BGE cross-encoder",
+    )
+    parser.add_argument(
+        "--reranker_model",
+        type=str,
+        default="BAAI/bge-reranker-base",
+        help="Reranker model name (BAAI/bge-reranker-base or BAAI/bge-reranker-large)",
+    )
+    parser.add_argument(
+        "--rerank_top_k",
+        type=int,
+        default=None,
+        help="Number of documents after reranking (defaults to same as top_k)",
+    )
 
     args = parser.parse_args()
 
@@ -148,6 +171,9 @@ def main():
         generation_model=args.generation_model,
         embedding_model=args.embedding_model,
         limit=args.limit,
+        use_reranker=args.use_reranker,
+        reranker_model=args.reranker_model,
+        rerank_top_k=args.rerank_top_k,
     )
 
 

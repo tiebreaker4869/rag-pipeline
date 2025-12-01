@@ -10,10 +10,11 @@ from langchain_core.documents import Document
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_openai import OpenAIEmbeddings
 
-from chat import BaseLLM, GeminiChat
+from chat import BaseLLM, GeminiChat, OpenAIChat
 from chunking.simple_chunker import SimpleChunker
 from parse.pymupdf_parser import PyMuPDFParser
 from prompt.baseline_prompt import generation_prompt
+from rerank import BaseReranker, BGEReranker
 from utils.profile import export_latency, latency_context
 
 
@@ -54,6 +55,9 @@ class TextRAGPipeline:
         embedding_model: str = "BAAI/bge-large-en-v1.5",
         doc_filter: Optional[List[str]] = None,
         single_doc_mode: bool = False,
+        use_reranker: bool = False,
+        reranker_model: str = "BAAI/bge-reranker-base",
+        rerank_top_k: Optional[int] = None,
     ):
         self.doc_dir = doc_dir
         self.page_parser = PyMuPDFParser()
@@ -63,6 +67,13 @@ class TextRAGPipeline:
         self.embedding_model = embedding_model
         self.doc_filter = set(doc_filter) if doc_filter else None
         self.single_doc_mode = single_doc_mode
+        self.use_reranker = use_reranker
+        self.rerank_top_k = rerank_top_k if rerank_top_k is not None else top_k
+
+        # Initialize reranker if enabled
+        self.reranker: Optional[BaseReranker] = None
+        if use_reranker:
+            self.reranker = BGEReranker(model_name=reranker_model)
 
         with latency_context("BuildIndex"):
             self.retriever, self.vectorstore = self._build_vector_index()
@@ -165,6 +176,13 @@ class TextRAGPipeline:
             else:
                 retrieved_documents = self.retriever.invoke(question)
 
+        # Apply reranking if enabled
+        if self.use_reranker and self.reranker:
+            with latency_context("Rerank"):
+                retrieved_documents = self.reranker.rerank(
+                    question, retrieved_documents, top_k=self.rerank_top_k
+                )
+
         with latency_context("FinalGeneration"):
             context = self._create_context(retrieved_documents)
             prompt = generation_prompt.format(context=context, question=question)
@@ -194,6 +212,23 @@ def main():
         default="BAAI/bge-large-en-v1.5",
         help="OpenAI embeddings (text-embedding-3-*) or HuggingFace model name.",
     )
+    parser.add_argument(
+        "--use_reranker",
+        action="store_true",
+        help="Enable reranking with BGE cross-encoder",
+    )
+    parser.add_argument(
+        "--reranker_model",
+        type=str,
+        default="BAAI/bge-reranker-base",
+        help="Reranker model name (BAAI/bge-reranker-base or BAAI/bge-reranker-large)",
+    )
+    parser.add_argument(
+        "--rerank_top_k",
+        type=int,
+        default=None,
+        help="Number of documents after reranking (defaults to same as top_k)",
+    )
     parser.add_argument("--metrics_output_dir", type=str, default="output")
 
     args = parser.parse_args()
@@ -205,6 +240,9 @@ def main():
         top_k=args.top_k,
         llm_model=args.generation_model,
         embedding_model=args.embedding_model,
+        use_reranker=args.use_reranker,
+        reranker_model=args.reranker_model,
+        rerank_top_k=args.rerank_top_k,
     )
 
     while True:

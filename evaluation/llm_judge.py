@@ -9,64 +9,132 @@ Outputs per-sample judgments and overall accuracy.
 
 import argparse
 import json
+import logging
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List
+from functools import partial
 
+import joblib
 from openai import OpenAI
+from tqdm import tqdm
 
+# Enable logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-JUDGE_PROMPT = """You are a strict answer judge.
-Given a question, a ground truth answer, and a model prediction,
-decide if the prediction is correct. Be tolerant to minor paraphrasing,
-but the key information must match exactly.
-
-Respond ONLY with a JSON object of the form:
-{{
-  "answer": "YES" or "NO",
-  "reason": "<brief reason>"
-}}
-
-Question: {question}
+# Binary correctness evaluation prompt (simplified from reference)
+JUDGE_PROMPT = """Question: {question}
+Predicted Answer: {pred}
 Ground Truth Answer: {gold}
-Model Prediction: {pred}"""
+
+Please evaluate if the predicted answer is correct compared to the ground truth.
+Score the answer on:
+Binary correctness (0-1): 1 if the answer is correct, 0 if it is incorrect
+
+Return only a string with these scores in a dictionary and can be parsed by json.loads, e.g. {{"binary_correctness": 1}}"""
 
 
 def load_predictions(path: str) -> List[Dict[str, Any]]:
+    """Load predictions from JSON file."""
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
     return data
 
 
-def call_openai(client: OpenAI, model: str, prompt: str) -> str:
-    resp = client.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.0,
-    )
-    return resp.choices[0].message.content.strip()
-
-
-def judge(client: OpenAI, model: str, question: str, gold: str, pred: str) -> Tuple[str, str]:
-    prompt = JUDGE_PROMPT.format(question=question, gold=gold, pred=pred)
-    raw = call_openai(client, model, prompt)
-
-    verdict = "NO"
-    reason = raw
+def evaluate_response(
+    client: OpenAI,
+    model: str,
+    question: str,
+    pred: str,
+    gold: str,
+    max_tokens: int = 512,
+    temperature: float = 1.0,
+) -> Dict[str, Any]:
+    """
+    Use LLM to evaluate a predicted answer against the ground truth.
+    Returns a score (0 or 1) and explanation.
+    """
     try:
-        parsed = json.loads(raw)
-        answer = str(parsed.get("answer", "")).upper()
-        reason = parsed.get("reason", "") or raw
-        if answer.startswith("YES"):
-            verdict = "YES"
-        elif answer.startswith("NO"):
-            verdict = "NO"
-    except json.JSONDecodeError:
-        upper = raw.upper()
-        if "YES" in upper and "NO" not in upper:
-            verdict = "YES"
-        elif "NO" in upper and "YES" not in upper:
-            verdict = "NO"
-    return verdict, reason
+        prompt = JUDGE_PROMPT.format(question=question, pred=pred, gold=gold)
+
+        response = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            max_completion_tokens=max_tokens,
+            temperature=temperature,
+        )
+
+        evaluation_text = response.choices[0].message.content.strip()
+
+        try:
+            # Parse the JSON response
+            evaluation_dict = json.loads(evaluation_text)
+            score = evaluation_dict.get("binary_correctness", 0)
+        except json.JSONDecodeError:
+            # Fallback: try to parse from text
+            score = 0
+            if "binary_correctness" in evaluation_text:
+                if '"binary_correctness": 1' in evaluation_text or '"binary_correctness":1' in evaluation_text:
+                    score = 1
+
+        return {"score": score, "explanation": evaluation_text}
+
+    except Exception as e:
+        logger.error(f"Error evaluating response: {e}")
+        return {"score": 0, "explanation": f"Evaluation error: {str(e)}"}
+
+
+def process_item(
+    item: Dict[str, Any],
+    client: OpenAI,
+    model: str,
+    max_tokens: int,
+    temperature: float,
+) -> Dict[str, Any]:
+    """Process a single evaluation item."""
+    try:
+        question = item.get("question", "")
+        gold = str(item.get("gold_answer", ""))
+        pred = str(item.get("pred_answer", ""))
+
+        # Skip if no ground truth
+        if not gold:
+            return {
+                "doc_id": item.get("doc_id"),
+                "question": question,
+                "gold_answer": gold,
+                "pred_answer": pred,
+                "score": 0,
+                "explanation": "No ground truth answer available",
+                "error": "No ground truth",
+            }
+
+        # Evaluate the response
+        eval_result = evaluate_response(
+            client, model, question, pred, gold, max_tokens, temperature
+        )
+
+        return {
+            "doc_id": item.get("doc_id"),
+            "question": question,
+            "gold_answer": gold,
+            "pred_answer": pred,
+            "score": eval_result["score"],
+            "explanation": eval_result["explanation"],
+            "error": None,
+        }
+
+    except Exception as e:
+        logger.error(f"Error processing item: {str(e)}")
+        return {
+            "doc_id": item.get("doc_id"),
+            "question": item.get("question", ""),
+            "gold_answer": item.get("gold_answer", ""),
+            "pred_answer": item.get("pred_answer", ""),
+            "score": 0,
+            "explanation": f"Exception: {str(e)}",
+            "error": str(e),
+        }
 
 
 def main():
@@ -88,58 +156,92 @@ def main():
     parser.add_argument(
         "--model",
         type=str,
-        default="gpt-4.1",
-        help="OpenAI chat model name for judging.",
+        default="gpt-5-mini",
+        help="OpenAI model name for judging.",
+    )
+    parser.add_argument(
+        "--max_tokens",
+        type=int,
+        default=512,
+        help="Maximum tokens for LLM responses",
+    )
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=1.0,
+        help="Temperature for LLM responses",
+    )
+    parser.add_argument(
+        "--n_jobs",
+        type=int,
+        default=4,
+        help="Number of parallel jobs (-1 for all cores, 1 for sequential)",
     )
 
     args = parser.parse_args()
 
+    # Load predictions
     data = load_predictions(args.predictions)
     if not data:
         raise SystemExit("No predictions loaded.")
 
+    print(f"Loaded {len(data)} predictions for evaluation")
+
+    # Initialize OpenAI client
     client = OpenAI()
 
-    judged: List[Dict[str, Any]] = []
-    correct = 0
+    # Create partial function with fixed arguments
+    process_func = partial(
+        process_item,
+        client=client,
+        model=args.model,
+        max_tokens=args.max_tokens,
+        temperature=args.temperature,
+    )
 
-    for idx, item in enumerate(data, start=1):
-        question = item.get("question", "")
-        gold = str(item.get("gold_answer", ""))
-        pred = str(item.get("pred_answer", ""))
-
-        print(f"[{idx}/{len(data)}] Judging...")
-        verdict, reason = judge(client, args.model, question, gold, pred)
-        is_correct = 1 if verdict == "YES" else 0
-        correct += is_correct
-
-        judged.append(
-            {
-                "doc_id": item.get("doc_id"),
-                "question": question,
-                "gold_answer": gold,
-                "pred_answer": pred,
-                "verdict": verdict,
-                "reason": reason,
-                "is_correct": is_correct,
-            }
+    # Process items in parallel or sequentially
+    if args.n_jobs == 1:
+        # Sequential processing
+        judged = []
+        for item in tqdm(data, desc="Evaluating responses"):
+            result = process_func(item)
+            judged.append(result)
+    else:
+        # Parallel processing
+        print(f"Processing {len(data)} items with {args.n_jobs} parallel jobs")
+        judged = joblib.Parallel(n_jobs=args.n_jobs, backend="threading")(
+            joblib.delayed(process_func)(item) for item in tqdm(data, desc="Evaluating")
         )
 
-    accuracy = correct / len(data)
+    # Calculate accuracy
+    scores = [item["score"] for item in judged if "score" in item]
+    correct = sum(scores)
+    total = len(scores)
+    accuracy = correct / total if total > 0 else 0.0
+
+    # Prepare output
     output = {
-        "total": len(data),
+        "model": args.model,
+        "total": total,
         "correct": correct,
         "accuracy": accuracy,
         "details": judged,
     }
 
+    # Save results
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
 
-    print(f"Saved LLM judge results to {output_path}")
-    print(f"Accuracy: {accuracy:.3f} ({correct}/{len(data)})")
+    print(f"\n{'='*60}")
+    print(f"Evaluation Results (Model: {args.model})")
+    print(f"{'='*60}")
+    print(f"Total samples:    {total}")
+    print(f"Correct:          {correct}")
+    print(f"Accuracy:         {accuracy*100:.2f}%")
+    print(f"{'='*60}")
+    print(f"Results saved to: {output_path}")
 
 
 if __name__ == "__main__":

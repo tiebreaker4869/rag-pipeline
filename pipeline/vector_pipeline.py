@@ -76,10 +76,64 @@ class TextRAGPipeline:
         return retriever, vs
 
     def _load_documents(self) -> List[Document]:
-        pdf_paths = glob.glob(os.path.join(self.doc_dir, "**/*.pdf"), recursive=True)
-        if not pdf_paths:
-            raise ValueError(f"No PDFs found under {self.doc_dir}")
+        # First try to find .txt files (OCR preprocessed)
+        txt_paths = glob.glob(os.path.join(self.doc_dir, "**/*.txt"), recursive=True)
 
+        # Fallback to PDFs if no txt files found
+        if not txt_paths:
+            pdf_paths = glob.glob(os.path.join(self.doc_dir, "**/*.pdf"), recursive=True)
+            if not pdf_paths:
+                raise ValueError(f"No TXT or PDF files found under {self.doc_dir}")
+            return self._load_from_pdfs(pdf_paths)
+
+        return self._load_from_txt_files(txt_paths)
+
+    def _load_from_txt_files(self, txt_paths: List[str]) -> List[Document]:
+        """Load documents from OCR-preprocessed .txt files"""
+        docs: List[Document] = []
+        for txt_path in txt_paths:
+            # Extract doc_id from filename (e.g., "docname.txt" -> "docname.pdf")
+            doc_name = os.path.basename(txt_path)
+            doc_id = doc_name.replace(".txt", ".pdf")
+
+            # Filter by doc_id if specified
+            if self.doc_filter and doc_id not in self.doc_filter:
+                continue
+
+            # Read the entire text file
+            try:
+                with open(txt_path, "r", encoding="utf-8") as f:
+                    text = f.read()
+            except Exception as e:
+                print(f"Warning: Failed to read {txt_path}: {e}")
+                continue
+
+            # Skip empty files
+            if not text.strip():
+                print(f"Warning: {doc_id} has no text content, skipping...")
+                continue
+
+            # Chunk the entire document text
+            chunks = self.chunker.split_text(text)
+            if not chunks:
+                print(f"Warning: {doc_id} produced no chunks after splitting, skipping...")
+                continue
+
+            for chunk_idx, chunk in enumerate(chunks):
+                metadata = {
+                    "doc_id": doc_id,
+                    "chunk_idx": chunk_idx,
+                    "source": txt_path,
+                }
+                docs.append(Document(page_content=chunk, metadata=metadata))
+
+            if self.single_doc_mode:
+                break
+
+        return docs
+
+    def _load_from_pdfs(self, pdf_paths: List[str]) -> List[Document]:
+        """Load documents from PDF files (fallback method)"""
         docs: List[Document] = []
         for pdf_path in pdf_paths:
             doc_id = os.path.basename(pdf_path)
@@ -97,7 +151,6 @@ class TextRAGPipeline:
                     docs.append(Document(page_content=chunk, metadata=metadata))
 
             if self.single_doc_mode:
-                # In single_doc_mode we only expect/process one document; break after first.
                 break
 
         return docs

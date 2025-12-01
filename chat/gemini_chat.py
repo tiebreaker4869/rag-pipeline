@@ -1,6 +1,8 @@
 import os
+import time
 from typing import List, Optional
 import google.generativeai as genai
+from google.api_core import exceptions as google_exceptions
 from .base import BaseLLM, Message, ChatResponse
 
 
@@ -11,6 +13,8 @@ class GeminiChat(BaseLLM):
         self,
         model: str = "gemini-2.0-flash-exp",
         api_key: Optional[str] = None,
+        max_retries: int = 5,
+        retry_delay: float = 1.0,
         **kwargs,
     ):
         """
@@ -19,6 +23,8 @@ class GeminiChat(BaseLLM):
         Args:
             model: Model name, default is gemini-2.0-flash-exp
             api_key: API key, if not provided will read from GEMINI_API_KEY env variable
+            max_retries: Maximum number of retries for rate limit errors (default: 5)
+            retry_delay: Initial delay between retries in seconds (default: 1.0)
             **kwargs: Other config parameters
         """
         super().__init__(model, **kwargs)
@@ -32,6 +38,8 @@ class GeminiChat(BaseLLM):
 
         genai.configure(api_key=api_key)
         self.client = genai.GenerativeModel(model)
+        self.max_retries = max_retries
+        self.retry_delay = retry_delay
 
     def generate(
         self,
@@ -41,7 +49,7 @@ class GeminiChat(BaseLLM):
         **kwargs,
     ) -> ChatResponse:
         """
-        Generate response
+        Generate response with automatic retry on rate limit errors
 
         Args:
             messages: List of messages
@@ -65,32 +73,66 @@ class GeminiChat(BaseLLM):
         # Update with other configs
         generation_config.update(kwargs)
 
-        # Call Gemini API
-        response = self.client.generate_content(
-            gemini_messages, generation_config=generation_config
-        )
-
-        # Extract usage information
-        usage = None
-        if hasattr(response, "usage_metadata"):
-            usage = {
-                "prompt_tokens": response.usage_metadata.prompt_token_count,
-                "completion_tokens": response.usage_metadata.candidates_token_count,
-                "total_tokens": response.usage_metadata.total_token_count,
-            }
-
-        return ChatResponse(
-            content=response.text,
-            model=self.model,
-            usage=usage,
-            metadata={
-                "finish_reason": (
-                    response.candidates[0].finish_reason.name
-                    if response.candidates
-                    else None
+        # Retry loop with exponential backoff
+        last_exception = None
+        for attempt in range(self.max_retries):
+            try:
+                # Call Gemini API
+                response = self.client.generate_content(
+                    gemini_messages, generation_config=generation_config
                 )
-            },
-        )
+
+                # Extract usage information
+                usage = None
+                if hasattr(response, "usage_metadata"):
+                    usage = {
+                        "prompt_tokens": response.usage_metadata.prompt_token_count,
+                        "completion_tokens": response.usage_metadata.candidates_token_count,
+                        "total_tokens": response.usage_metadata.total_token_count,
+                    }
+
+                return ChatResponse(
+                    content=response.text,
+                    model=self.model,
+                    usage=usage,
+                    metadata={
+                        "finish_reason": (
+                            response.candidates[0].finish_reason.name
+                            if response.candidates
+                            else None
+                        )
+                    },
+                )
+
+            except Exception as e:
+                last_exception = e
+                error_str = str(e)
+
+                # Check if it's a rate limit error (429)
+                if "429" in error_str or "quota" in error_str.lower() or "rate" in error_str.lower():
+                    # Extract wait time from error message if available
+                    wait_time = self.retry_delay * (2 ** attempt)  # Exponential backoff
+
+                    # Try to parse retry_delay from error message
+                    if "retry in" in error_str.lower():
+                        try:
+                            import re
+                            match = re.search(r'retry in ([\d.]+)s', error_str)
+                            if match:
+                                wait_time = float(match.group(1)) + 1  # Add 1s buffer
+                        except:
+                            pass
+
+                    if attempt < self.max_retries - 1:
+                        print(f"[Rate limit hit] Waiting {wait_time:.1f}s before retry {attempt + 1}/{self.max_retries}...")
+                        time.sleep(wait_time)
+                        continue
+
+                # For non-rate-limit errors or last attempt, raise immediately
+                raise last_exception
+
+        # If all retries exhausted
+        raise last_exception
 
     def _convert_messages(self, messages: List[Message]) -> List[dict]:
         """

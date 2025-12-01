@@ -1,4 +1,5 @@
 import os
+from typing import Dict, Tuple
 from parse.pdf_parser import PDFParser, PageContent
 from parse.pymupdf_parser import PyMuPDFParser
 from parse.tesseract_parser import TesseractPdfParser
@@ -11,6 +12,7 @@ class HybridPdfParser(PDFParser):
     Strategy:
     1. Try PyMuPDF (fast, accurate for native PDFs)
     2. If text is too short (< min_text_length chars), use Tesseract OCR fallback
+    3. Cache parsed results to avoid re-parsing the same page
     """
 
     def __init__(
@@ -18,6 +20,7 @@ class HybridPdfParser(PDFParser):
         min_text_length: int = 50,
         tesseract_lang: str = "eng",
         tesseract_dpi: int = 300,
+        enable_cache: bool = True,
     ):
         """
         Args:
@@ -25,12 +28,16 @@ class HybridPdfParser(PDFParser):
                            If PyMuPDF extracts less than this, fallback to OCR.
             tesseract_lang: Language code for Tesseract OCR (default: "eng")
             tesseract_dpi: DPI for Tesseract rendering (default: 300)
+            enable_cache: Whether to cache parsed results (default: True)
         """
         self.min_text_length = min_text_length
         self.pymupdf_parser = PyMuPDFParser()
         self.tesseract_parser = TesseractPdfParser(
             lang=tesseract_lang, dpi=tesseract_dpi
         )
+        self.enable_cache = enable_cache
+        # Cache: (pdf_path, page_num) -> PageContent
+        self._cache: Dict[Tuple[str, int], PageContent] = {}
 
     def parse_page(self, pdf_path: str, page_num: int) -> PageContent:
         """
@@ -43,6 +50,16 @@ class HybridPdfParser(PDFParser):
         Returns:
             PageContent object for the specified page
         """
+        # Check cache first
+        cache_key = (pdf_path, page_num)
+        if self.enable_cache and cache_key in self._cache:
+            cached_content = self._cache[cache_key]
+            # Mark as from cache
+            if cached_content.metadata is None:
+                cached_content.metadata = {}
+            cached_content.metadata["from_cache"] = True
+            return cached_content
+
         # Try PyMuPDF first
         try:
             page_content = self.pymupdf_parser.parse_page(pdf_path, page_num)
@@ -53,6 +70,12 @@ class HybridPdfParser(PDFParser):
                 if page_content.metadata is None:
                     page_content.metadata = {}
                 page_content.metadata["parser"] = "pymupdf"
+                page_content.metadata["from_cache"] = False
+
+                # Cache the result
+                if self.enable_cache:
+                    self._cache[cache_key] = page_content
+
                 return page_content
 
             # Text too short, likely a scanned page
@@ -73,9 +96,26 @@ class HybridPdfParser(PDFParser):
             if page_content.metadata is None:
                 page_content.metadata = {}
             page_content.metadata["parser"] = "tesseract_fallback"
+            page_content.metadata["from_cache"] = False
+
+            # Cache the result
+            if self.enable_cache:
+                self._cache[cache_key] = page_content
+
             return page_content
 
         except Exception as e:
             raise RuntimeError(
                 f"Both PyMuPDF and Tesseract failed for page {page_num} from {pdf_path}: {e}"
             )
+
+    def clear_cache(self):
+        """Clear the parsing cache to free memory."""
+        self._cache.clear()
+
+    def get_cache_stats(self) -> dict:
+        """Get cache statistics."""
+        return {
+            "cached_pages": len(self._cache),
+            "cache_enabled": self.enable_cache,
+        }

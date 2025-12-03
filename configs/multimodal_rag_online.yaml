@@ -1,0 +1,37 @@
+# Multimodal RAG Pipeline with Online Parsing Configuration
+# Uses MultimodalRAGOnlinePipeline with ColPali vision retrieval + online PDF parsing
+# Requires .pt embeddings and .pdf file
+
+pipeline:
+  type: multimodal_rag_online
+  params:
+    # doc_dir will be overridden for each document
+    doc_dir: ""
+
+    # Vision retrieval parameters
+    vision_top_k: 10
+
+    # Text retrieval parameters
+    text_top_k: 5
+
+    # Chunking parameters
+    chunk_size: 512
+    chunk_overlap: 128
+
+    # Model selection
+    llm_model: gemini-2.5-flash
+    embedding_model: text-embedding-3-small
+
+    # Reranker (optional)
+    use_reranker: false
+    reranker_model: BAAI/bge-reranker-base
+    rerank_top_k: null  # defaults to text_top_k if null
+
+    # PDF parsing
+    parser: null  # null defaults to PyMuPDFParser
+    fallback_to_ocr: true  # Enable OCR fallback for scanned PDFs
+
+# Inference settings
+inference:
+  # Path to save metrics (optional)
+  metrics_output: output/mm_rag_online_metrics.csv

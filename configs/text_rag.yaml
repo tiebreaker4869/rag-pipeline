@@ -1,0 +1,29 @@
+# Text-only RAG Pipeline Configuration
+# Uses TextRAGPipeline with markdown files
+
+pipeline:
+  type: text_rag
+  params:
+    # doc_dir will be overridden for each document
+    doc_dir: ""
+
+    # Chunking parameters
+    chunk_size: 512
+    chunk_overlap: 128
+
+    # Retrieval parameters
+    top_k: 5
+
+    # Model selection
+    llm_model: gemini-2.5-flash
+    embedding_model: text-embedding-3-small
+
+    # Reranker (optional)
+    use_reranker: false
+    reranker_model: BAAI/bge-reranker-base
+    rerank_top_k: null  # defaults to top_k if null
+
+# Inference settings
+inference:
+  # Path to save metrics (optional)
+  metrics_output: output/text_rag_metrics.csv

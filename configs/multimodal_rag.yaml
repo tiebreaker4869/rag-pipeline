@@ -1,0 +1,33 @@
+# Multimodal RAG Pipeline Configuration
+# Uses MultimodalRAGPipeline with ColPali vision retrieval + text retrieval
+# Requires pre-generated .pt embeddings and .md files
+
+pipeline:
+  type: multimodal_rag
+  params:
+    # doc_dir will be overridden for each document
+    doc_dir: ""
+
+    # Vision retrieval parameters
+    vision_top_k: 10
+
+    # Text retrieval parameters
+    text_top_k: 5
+
+    # Chunking parameters
+    chunk_size: 512
+    chunk_overlap: 128
+
+    # Model selection
+    llm_model: gemini-2.5-flash
+    embedding_model: text-embedding-3-small
+
+    # Reranker (optional)
+    use_reranker: false
+    reranker_model: BAAI/bge-reranker-base
+    rerank_top_k: null  # defaults to text_top_k if null
+
+# Inference settings
+inference:
+  # Path to save metrics (optional)
+  metrics_output: output/mm_rag_metrics.csv

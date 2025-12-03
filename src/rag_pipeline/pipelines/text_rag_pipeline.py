@@ -16,7 +16,7 @@ from rag_pipeline.chunking import SimpleChunker
 from rag_pipeline.prompts import rag_generation_prompt
 from rag_pipeline.rerankers import BaseReranker, BGEReranker
 from rag_pipeline.utils.profile import latency_context
-from .base import BaseRAGPipeline
+from .base import BaseRAGPipeline, RAGResponse
 
 
 # Global cache for embedding models
@@ -201,9 +201,24 @@ class TextRAGPipeline(BaseRAGPipeline):
         Returns:
             Generated answer
         """
+        response = self.query_with_metadata(question)
+        return response.answer
+
+    def query_with_metadata(self, question: str) -> RAGResponse:
+        """Run RAG query and return answer with metadata.
+
+        Args:
+            question: User's question
+
+        Returns:
+            RAGResponse with answer and retrieval metadata
+        """
         # Retrieve
         with latency_context("TextRetrieval"):
             retrieved_documents = self.retriever.invoke(question)
+
+        # Extract pages from text retrieval (before reranking)
+        text_retrieved_pages = self._extract_page_numbers(retrieved_documents)
 
         # Rerank if enabled
         if self.use_reranker and self.reranker:
@@ -211,6 +226,9 @@ class TextRAGPipeline(BaseRAGPipeline):
                 retrieved_documents = self.reranker.rerank(
                     question, retrieved_documents, top_k=self.rerank_top_k
                 )
+
+        # Extract final pages (after reranking or text retrieval)
+        final_pages = self._extract_page_numbers(retrieved_documents)
 
         # Generate
         with latency_context("FinalGeneration"):
@@ -223,7 +241,14 @@ class TextRAGPipeline(BaseRAGPipeline):
             )
             answer = self.llm.chat(prompt)
 
-        return answer
+        return RAGResponse(
+            answer=answer,
+            metadata={
+                "text_retrieved_pages": text_retrieved_pages,
+                "final_pages": final_pages,
+                "num_chunks": len(retrieved_documents),
+            }
+        )
 
     def _create_context(self, documents: List[Document]) -> str:
         """Concatenate document contents into context string."""
@@ -231,17 +256,28 @@ class TextRAGPipeline(BaseRAGPipeline):
             return "\n\n".join([d.page_content for d in documents])
         return "\n"
 
+    def _extract_page_numbers(self, documents: List[Document]) -> List[int]:
+        """Extract unique page numbers from documents.
+
+        Args:
+            documents: List of documents with page_num metadata
+
+        Returns:
+            Sorted list of unique page numbers
+        """
+        page_nums = set()
+        for doc in documents:
+            if "page_num" in doc.metadata:
+                page_nums.add(doc.metadata["page_num"])
+        return sorted(page_nums)
+
     def _format_page_numbers(self, documents: List[Document]) -> str:
         """Extract and format page numbers from retrieved documents."""
         if not documents:
             return "No pages retrieved"
 
-        page_nums = set()
-        for doc in documents:
-            if "page_num" in doc.metadata:
-                page_nums.add(doc.metadata["page_num"])
+        page_nums = self._extract_page_numbers(documents)
 
         if page_nums:
-            sorted_pages = sorted(page_nums)
-            return f"Pages {', '.join(map(str, sorted_pages))}"
+            return f"Pages {', '.join(map(str, page_nums))}"
         return "Page numbers not available"

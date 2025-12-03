@@ -22,7 +22,7 @@ from rag_pipeline.chunking import SimpleChunker
 from rag_pipeline.prompts import rag_generation_prompt
 from rag_pipeline.rerankers import BaseReranker, BGEReranker
 from rag_pipeline.utils.profile import latency_context
-from .base import BaseRAGPipeline
+from .base import BaseRAGPipeline, RAGResponse
 
 
 # Global cache for embedding models
@@ -213,6 +213,18 @@ class MultimodalRAGPipeline(BaseRAGPipeline):
         Returns:
             Generated answer
         """
+        response = self.query_with_metadata(question)
+        return response.answer
+
+    def query_with_metadata(self, question: str) -> RAGResponse:
+        """Run multimodal RAG query and return answer with metadata.
+
+        Args:
+            question: User's question
+
+        Returns:
+            RAGResponse with answer and retrieval metadata
+        """
         # Stage 1: ColPali vision-based page retrieval
         with latency_context("VisionRetrieval"):
             page_results = self.colpali_retriever.retrieve(question, top_k=self.vision_top_k)
@@ -225,7 +237,14 @@ class MultimodalRAGPipeline(BaseRAGPipeline):
             page_documents = self._load_pages(retrieved_page_nums)
 
         if not page_documents:
-            return "No relevant content found."
+            return RAGResponse(
+                answer="No relevant content found.",
+                metadata={
+                    "vision_retrieved_pages": retrieved_page_nums,
+                    "text_retrieved_pages": [],
+                    "final_pages": [],
+                }
+            )
 
         # Stage 3: Text-based chunk retrieval on retrieved pages
         with latency_context("TextRetrieval"):
@@ -233,12 +252,18 @@ class MultimodalRAGPipeline(BaseRAGPipeline):
             retriever = vectorstore.as_retriever(search_kwargs={"k": self.text_top_k})
             retrieved_documents = retriever.invoke(question)
 
+        # Extract pages from text retrieval (before reranking)
+        text_retrieved_pages = self._extract_page_numbers(retrieved_documents)
+
         # Stage 4: Rerank if enabled
         if self.use_reranker and self.reranker:
             with latency_context("Rerank"):
                 retrieved_documents = self.reranker.rerank(
                     question, retrieved_documents, top_k=self.rerank_top_k
                 )
+
+        # Extract final pages (after reranking or text retrieval)
+        final_pages = self._extract_page_numbers(retrieved_documents)
 
         # Stage 5: Generate answer
         with latency_context("FinalGeneration"):
@@ -256,7 +281,15 @@ class MultimodalRAGPipeline(BaseRAGPipeline):
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
-        return answer
+        return RAGResponse(
+            answer=answer,
+            metadata={
+                "vision_retrieved_pages": retrieved_page_nums,
+                "text_retrieved_pages": text_retrieved_pages,
+                "final_pages": final_pages,
+                "num_chunks": len(retrieved_documents),
+            }
+        )
 
     def _create_context(self, documents: List[Document]) -> str:
         """Concatenate document contents into context string."""
@@ -264,17 +297,28 @@ class MultimodalRAGPipeline(BaseRAGPipeline):
             return "\n\n".join([d.page_content for d in documents])
         return "\n"
 
+    def _extract_page_numbers(self, documents: List[Document]) -> List[int]:
+        """Extract unique page numbers from documents.
+
+        Args:
+            documents: List of documents with page_num metadata
+
+        Returns:
+            Sorted list of unique page numbers
+        """
+        page_nums = set()
+        for doc in documents:
+            if "page_num" in doc.metadata:
+                page_nums.add(doc.metadata["page_num"])
+        return sorted(page_nums)
+
     def _format_page_numbers(self, documents: List[Document]) -> str:
         """Extract and format page numbers from retrieved documents."""
         if not documents:
             return "No pages retrieved"
 
-        page_nums = set()
-        for doc in documents:
-            if "page_num" in doc.metadata:
-                page_nums.add(doc.metadata["page_num"])
+        page_nums = self._extract_page_numbers(documents)
 
         if page_nums:
-            sorted_pages = sorted(page_nums)
-            return f"Pages {', '.join(map(str, sorted_pages))}"
+            return f"Pages {', '.join(map(str, page_nums))}"
         return "Page numbers not available"

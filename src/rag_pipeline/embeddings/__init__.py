@@ -1,0 +1,1 @@
+# Vision embeddings generation module

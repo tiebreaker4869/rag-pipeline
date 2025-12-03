@@ -104,7 +104,7 @@ doc_root/
 
 ### Output Format
 
-The script outputs a JSON file with predictions:
+The script outputs a JSON file with predictions and retrieval metadata:
 
 ```json
 [
@@ -114,11 +114,24 @@ The script outputs a JSON file with predictions:
     "gold_answer": "The answer is ...",
     "pred_answer": "According to the document ...",
     "doc_type": "Research report",
-    "answer_format": "Str"
+    "answer_format": "Str",
+    "vision_retrieved_pages": [1, 3, 5, 7, 9],
+    "text_retrieved_pages": [1, 3, 5],
+    "final_pages": [1, 3],
+    "num_chunks": 3
   },
   ...
 ]
 ```
+
+**Metadata Fields:**
+
+- `vision_retrieved_pages` (multimodal pipelines only): Pages retrieved by ColPali vision retrieval
+- `text_retrieved_pages`: Pages retrieved by text retrieval (before reranking)
+- `final_pages`: Pages finally sent to LLM (after reranking if enabled, otherwise same as text_retrieved_pages)
+- `num_chunks`: Number of text chunks used for generation
+
+**Note:** For `TextRAGPipeline`, only `text_retrieved_pages`, `final_pages`, and `num_chunks` are included (no vision retrieval).
 
 ## Example Commands
 

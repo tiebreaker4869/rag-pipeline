@@ -13,7 +13,7 @@ from langchain_openai import OpenAIEmbeddings
 
 from rag_pipeline.llm import BaseLLM, GeminiChat
 from rag_pipeline.chunking import SimpleChunker
-from rag_pipeline.prompts import baseline_prompt
+from rag_pipeline.prompts import rag_generation_prompt
 from rag_pipeline.rerankers import BaseReranker, BGEReranker
 from rag_pipeline.utils.profile import latency_context
 from .base import BaseRAGPipeline
@@ -112,6 +112,31 @@ class TextRAGPipeline(BaseRAGPipeline):
         retriever = vs.as_retriever(search_kwargs={"k": self.top_k})
         return retriever, vs
 
+    def _preprocess_text(self, text: str) -> str:
+        """Clean OCR artifacts from text.
+
+        Removes detection box annotations like:
+        - <|ref|>title<|/ref|><|det|>[[141, 174, 263, 190]]<|/det|>
+        - <|det|>[[x, y, w, h]]<|/det|>
+
+        Args:
+            text: Raw text from OCR
+
+        Returns:
+            Cleaned text
+        """
+        # Remove detection box tags: <|det|>[[coordinates]]<|/det|>
+        text = re.sub(r'<\|det\|>.*?<\|/det\|>', '', text)
+
+        # Remove reference tags but keep content: <|ref|>content<|/ref|> -> content
+        text = re.sub(r'<\|ref\|>(.*?)<\|/ref\|>', r'\1', text)
+
+        # Clean up multiple spaces and newlines
+        text = re.sub(r' +', ' ', text)
+        text = re.sub(r'\n{3,}', '\n\n', text)
+
+        return text.strip()
+
     def _load_documents(self) -> List[Document]:
         """Load documents from OCR markdown files.
 
@@ -149,6 +174,9 @@ class TextRAGPipeline(BaseRAGPipeline):
 
             if not text.strip():
                 continue
+
+            # Preprocess to remove OCR artifacts
+            text = self._preprocess_text(text)
 
             # Chunk the page text
             chunks = self.chunker.split_text(text)
@@ -188,7 +216,12 @@ class TextRAGPipeline(BaseRAGPipeline):
         # Generate
         with latency_context("FinalGeneration"):
             context = self._create_context(retrieved_documents)
-            prompt = baseline_prompt.format(context=context, question=question)
+            page_numbers = self._format_page_numbers(retrieved_documents)
+            prompt = rag_generation_prompt.format(
+                question=question,
+                page_numbers=page_numbers,
+                context=context
+            )
             answer = self.llm.chat(prompt)
 
         return answer
@@ -196,5 +229,20 @@ class TextRAGPipeline(BaseRAGPipeline):
     def _create_context(self, documents: List[Document]) -> str:
         """Concatenate document contents into context string."""
         if documents:
-            return "\n".join([d.page_content for d in documents])
+            return "\n\n".join([d.page_content for d in documents])
         return "\n"
+
+    def _format_page_numbers(self, documents: List[Document]) -> str:
+        """Extract and format page numbers from retrieved documents."""
+        if not documents:
+            return "No pages retrieved"
+
+        page_nums = set()
+        for doc in documents:
+            if "page_num" in doc.metadata:
+                page_nums.add(doc.metadata["page_num"])
+
+        if page_nums:
+            sorted_pages = sorted(page_nums)
+            return f"Pages {', '.join(map(str, sorted_pages))}"
+        return "Page numbers not available"

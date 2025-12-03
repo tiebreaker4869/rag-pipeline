@@ -204,12 +204,11 @@ class MultimodalRAGPipeline(BaseRAGPipeline):
         print(f"[INFO] Loaded {len(documents)} chunks from {len(page_nums)} pages")
         return documents
 
-    def query(self, question: str, doc_id: Optional[str] = None) -> str:
+    def query(self, question: str) -> str:
         """Run multimodal RAG query.
 
         Args:
             question: User's question
-            doc_id: Ignored (kept for interface compatibility)
 
         Returns:
             Generated answer

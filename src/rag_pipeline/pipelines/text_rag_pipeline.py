@@ -192,12 +192,11 @@ class TextRAGPipeline(BaseRAGPipeline):
         print(f"[INFO] Loaded {len(docs)} chunks from {len(md_paths)} pages")
         return docs
 
-    def query(self, question: str, doc_id: Optional[str] = None) -> str:
+    def query(self, question: str) -> str:
         """Run RAG query.
 
         Args:
             question: User's question
-            doc_id: Ignored (kept for interface compatibility)
 
         Returns:
             Generated answer

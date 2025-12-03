@@ -33,24 +33,18 @@ class BaseRAGPipeline(ABC):
     """
 
     @abstractmethod
-    def query(self, question: str, doc_id: Optional[str] = None) -> str:
+    def query(self, question: str) -> str:
         """Run RAG query and return answer.
 
         Args:
             question: User's question
-            doc_id: Optional document ID to restrict search scope.
-                   If None, searches across all documents.
 
         Returns:
             Generated answer as string
         """
         pass
 
-    def query_with_metadata(
-        self,
-        question: str,
-        doc_id: Optional[str] = None
-    ) -> RAGResponse:
+    def query_with_metadata(self, question: str) -> RAGResponse:
         """Run RAG query and return answer with metadata.
 
         Default implementation calls query() and wraps result in RAGResponse.
@@ -58,10 +52,9 @@ class BaseRAGPipeline(ABC):
 
         Args:
             question: User's question
-            doc_id: Optional document ID to restrict search scope
 
         Returns:
             RAGResponse with answer and metadata
         """
-        answer = self.query(question, doc_id)
+        answer = self.query(question)
         return RAGResponse(answer=answer)

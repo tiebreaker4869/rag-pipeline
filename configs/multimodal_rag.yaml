@@ -12,7 +12,7 @@ pipeline:
     vision_top_k: 10
 
     # Text retrieval parameters
-    text_top_k: 5
+    text_top_k: 10
 
     # Chunking parameters
     chunk_size: 512
@@ -20,12 +20,12 @@ pipeline:
 
     # Model selection
     llm_model: gemini-2.5-flash
-    embedding_model: text-embedding-3-small
+    embedding_model: BAAI/bge-large-en-v1.5
 
     # Reranker (optional)
-    use_reranker: false
+    use_reranker: true
     reranker_model: BAAI/bge-reranker-base
-    rerank_top_k: null  # defaults to text_top_k if null
+    rerank_top_k: 5  # defaults to text_top_k if null
 
 # Inference settings
 inference:

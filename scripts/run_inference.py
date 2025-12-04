@@ -197,6 +197,8 @@ def run_inference(
                 'pred_answer': pred,
                 'doc_type': sample.get('doc_type', ''),
                 'answer_format': sample.get('answer_format', ''),
+                'evidence_pages': sample.get('evidence_pages', '[]'),
+                'evidence_sources': sample.get('evidence_sources', '[]'),
             }
 
             # Add retrieval metadata if available

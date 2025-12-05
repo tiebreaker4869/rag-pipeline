@@ -143,10 +143,13 @@ class MultimodalRAGOnlinePipeline(BaseRAGPipeline):
         if use_reranker:
             self.reranker = BGEReranker(model_name=reranker_model)
 
+        # Initialize page parsing cache
+        self._page_cache = {}  # {page_num: List[Document]}
+
         print(f"[INFO] Multimodal pipeline with online parsing initialized")
 
     def _parse_pages(self, page_nums: List[int]) -> List[Document]:
-        """Parse specific pages from PDF.
+        """Parse specific pages from PDF with caching.
 
         Args:
             page_nums: List of page numbers to parse
@@ -156,12 +159,28 @@ class MultimodalRAGOnlinePipeline(BaseRAGPipeline):
         """
         documents = []
 
+        # Check cache for already parsed pages
+        pages_to_parse = []
+        for page_num in page_nums:
+            if page_num in self._page_cache:
+                # Use cached documents
+                documents.extend(self._page_cache[page_num])
+            else:
+                pages_to_parse.append(page_num)
+
+        # If all pages are cached, return immediately
+        if not pages_to_parse:
+            print(f"[INFO] All {len(page_nums)} pages found in cache")
+            return documents
+
+        print(f"[INFO] Parsing {len(pages_to_parse)} pages ({len(page_nums) - len(pages_to_parse)} from cache)")
+
         # Parse requested pages using batch_process
         with latency_context("PDFParsing"):
             try:
                 page_contents = self.parser.batch_process(
                     self.pdf_path,
-                    page_nums=page_nums
+                    page_nums=pages_to_parse
                 )
 
                 # Check if we got empty text (possible scanned PDF)
@@ -186,7 +205,7 @@ class MultimodalRAGOnlinePipeline(BaseRAGPipeline):
                     print(f"[INFO] Falling back to OCR parser")
                     page_contents = self.ocr_parser.batch_process(
                         self.pdf_path,
-                        page_nums=page_nums
+                        page_nums=pages_to_parse
                     )
                 else:
                     raise
@@ -194,7 +213,8 @@ class MultimodalRAGOnlinePipeline(BaseRAGPipeline):
         # Extract PDF name for metadata
         pdf_name = os.path.basename(self.pdf_path)
 
-        # Chunk each page
+        # Chunk each page and cache the results
+        newly_parsed_docs = []
         for page_content in page_contents:
             page_num = page_content.page_num
             text = page_content.text
@@ -204,6 +224,7 @@ class MultimodalRAGOnlinePipeline(BaseRAGPipeline):
 
             # Chunk the page text
             chunks = self.chunker.split_text(text)
+            page_docs = []
             for chunk_idx, chunk in enumerate(chunks):
                 metadata = {
                     "doc_id": pdf_name,
@@ -211,9 +232,17 @@ class MultimodalRAGOnlinePipeline(BaseRAGPipeline):
                     "chunk_idx": chunk_idx,
                     "source": self.pdf_path,
                 }
-                documents.append(Document(page_content=chunk, metadata=metadata))
+                doc = Document(page_content=chunk, metadata=metadata)
+                page_docs.append(doc)
+                newly_parsed_docs.append(doc)
 
-        print(f"[INFO] Parsed and chunked {len(documents)} chunks from {len(page_nums)} pages")
+            # Cache the parsed chunks for this page
+            self._page_cache[page_num] = page_docs
+
+        # Add newly parsed documents to results
+        documents.extend(newly_parsed_docs)
+
+        print(f"[INFO] Parsed and chunked {len(documents)} chunks from {len(page_nums)} pages ({len(newly_parsed_docs)} newly parsed)")
         return documents
 
     def query(self, question: str) -> str:

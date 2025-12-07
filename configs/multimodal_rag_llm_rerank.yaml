@@ -1,0 +1,32 @@
+# Multimodal RAG Pipeline with LLM-based Reranking Configuration
+# Uses MultimodalRAGLLMRerankPipeline with ColPali vision retrieval + text retrieval + LLM reranking
+# Requires pre-generated .pt embeddings and .md files
+
+pipeline:
+  type: multimodal_rag_llm_rerank
+  params:
+    # doc_dir will be overridden for each document
+    doc_dir: ""
+
+    # Vision retrieval parameters
+    vision_top_k: 10
+
+    # Text retrieval parameters
+    text_top_k: 10
+
+    # Chunking parameters
+    chunk_size: 512
+    chunk_overlap: 128
+
+    # Model selection
+    llm_model: gemini-2.5-flash
+    embedding_model: BAAI/bge-large-en-v1.5
+
+    # LLM Reranker configuration
+    rerank_llm_model: gemini-2.5-flash-lite # LLM model for reranking
+    rerank_top_k: null  # null means return all relevant chunks as determined by LLM
+
+# Inference settings
+inference:
+  # Path to save metrics (optional)
+  metrics_output: output/mm_rag_llm_rerank_metrics.csv

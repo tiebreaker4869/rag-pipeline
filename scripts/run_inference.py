@@ -24,6 +24,7 @@ from rag_pipeline.pipelines import (
     TextRAGPipeline,
     MultimodalRAGPipeline,
     MultimodalRAGOnlinePipeline,
+    MultimodalRAGLLMRerankPipeline,
     RAGResponse,
 )
 from rag_pipeline.utils.profile import export_latency
@@ -53,7 +54,7 @@ def create_pipeline(pipeline_type: str, params: Dict[str, Any]):
     """Create pipeline instance from type and parameters.
 
     Args:
-        pipeline_type: Type of pipeline (text_rag, multimodal_rag, multimodal_rag_online)
+        pipeline_type: Type of pipeline (text_rag, multimodal_rag, multimodal_rag_online, multimodal_rag_llm_rerank)
         params: Pipeline initialization parameters
 
     Returns:
@@ -65,6 +66,8 @@ def create_pipeline(pipeline_type: str, params: Dict[str, Any]):
         return MultimodalRAGPipeline(**params)
     elif pipeline_type == 'multimodal_rag_online':
         return MultimodalRAGOnlinePipeline(**params)
+    elif pipeline_type == 'multimodal_rag_llm_rerank':
+        return MultimodalRAGLLMRerankPipeline(**params)
     else:
         raise ValueError(f"Unknown pipeline type: {pipeline_type}")
 

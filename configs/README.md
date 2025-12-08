@@ -30,11 +30,20 @@ Multimodal RAG with online PDF parsing.
 
 **Use case:** Same as multimodal_rag but parses PDF pages on-the-fly (slower but no pre-processing needed)
 
+### 4. `multimodal_rag_llm_rerank.yaml`
+Multimodal RAG with LLM-based reranking.
+
+**Requirements:**
+- ColPali embeddings file (`.pt`) in each document directory
+- Markdown files in each document directory
+
+**Use case:** Vision-based page retrieval → text chunk retrieval → LLM reranking → generation. LLM reranker identifies all relevant chunks (not limited by top_k)
+
 ## Configuration Schema
 
 ```yaml
 pipeline:
-  type: text_rag | multimodal_rag | multimodal_rag_online
+  type: text_rag | multimodal_rag | multimodal_rag_online | multimodal_rag_llm_rerank
   params:
     # Common parameters
     chunk_size: 512
@@ -59,6 +68,12 @@ pipeline:
     vision_top_k: 10
     text_top_k: 5
     fallback_to_ocr: true
+
+    # MultimodalRAGLLMRerank:
+    vision_top_k: 10
+    text_top_k: 10
+    rerank_llm_model: gemini-2.5-flash-lite
+    rerank_top_k: null  # null means return all relevant chunks
 
 inference:
   metrics_output: output/metrics.csv  # Optional
